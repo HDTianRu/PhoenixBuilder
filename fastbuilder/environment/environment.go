@@ -22,10 +22,11 @@ type PBEnvironment struct {
 	FBAuthClient              interface{}
 	GlobalFullConfig          interface{}
 	RespondUser               string
-	CommandSender             interfaces.CommandSender
 	Connection                interface{}
 	UQHolder                  interface{}
-	NewUQHolder               interface{} // for blockNBT
+	Resources                 interface{}
+	ResourcesUpdater          interface{}
+	GameInterface             interfaces.GameInterface
 	TaskHolder                interface{}
 	OmegaHolder               interface{}
 	OmegaAdaptorHolder        interface{}

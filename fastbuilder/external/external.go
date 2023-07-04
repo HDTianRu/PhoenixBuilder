@@ -84,12 +84,12 @@ func (handler *ExternalConnectionHandler) acceptConnection(conn connection.Relia
 					handler.env.FunctionHolder.Process(p.Command)
 				case *packet.GameCommandPacket:
 					if p.CommandType == packet.CommandTypeSettings {
-						env.CommandSender.SendSizukanaCommand(p.Command)
+						env.GameInterface.SendSettingsCommand(p.Command, false)
 						break
 					} else if p.CommandType == packet.CommandTypeNormal {
-						env.CommandSender.SendWSCommand(p.Command, p.UUID)
+						env.GameInterface.SendWSCommand(p.Command)
 					} else {
-						env.CommandSender.SendCommand(p.Command, p.UUID)
+						env.GameInterface.SendCommand(p.Command)
 					}
 				case *packet.GamePacket:
 					(env.Connection).(*minecraft.Conn).Write(p.Content)

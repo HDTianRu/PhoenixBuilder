@@ -5,14 +5,11 @@ import (
 	_ "embed"
 	"encoding/gob"
 	"fmt"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"unsafe"
 
 	"github.com/andybalholm/brotli"
-	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
 // the input of this function is nemc runtime id, and should only from the network (chunk data packet), so it should never be "not found" if mapping and input is correct
@@ -42,6 +39,7 @@ var RuntimeIDToBlock func(runtimeID uint32) (block *GeneralBlock, found bool)
 var JavaToRuntimeID func(javaBlockStr string) (runtimeID uint32, found bool)
 var RuntimeIDToJava func(runtimeID uint32) (javaBlockStr string, found bool)
 var BlockStateStrToRuntimeID func(blockName, blockState string) (uint32, bool)
+var BlockPropsToRuntimeID func(blockName string, blockProps map[string]interface{}) (uint32, bool)
 
 var SchematicBlockToRuntimeID func(block, data byte) (runtimeID uint32, found bool)
 var SchematicBlockToRuntimeIDStaticMapping []uint32
@@ -134,6 +132,33 @@ func hashProperties(properties map[string]interface{}) string {
 	}
 
 	return b.String()
+}
+
+func PropValueToStateString(value interface{}) string {
+	switch v := value.(type) {
+	case bool:
+		if v {
+			return "true"
+		} else {
+			return "false"
+		}
+	case uint8:
+		if v == 0 {
+			return "false"
+		} else if v == 1 {
+			return "true"
+		} else {
+			return fmt.Sprintf("%v", v)
+		}
+	case int32:
+		return fmt.Sprintf("%v", v)
+	case string:
+		return fmt.Sprintf("\"%v\"", v)
+	default:
+		// If block encoding is broken, we want to find out as soon as possible. This saves a lot of time
+		// debugging in-game.
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func PropsToStateString(properties map[string]interface{}, bracket bool) string {
@@ -479,84 +504,88 @@ var SchematicBlockNames = []string{
 	"structure_block",
 }
 
-type ColorBlock struct {
-	Color colorful.Color
-	Block *LegacyBlock
-}
-
-var ColorTable = []ColorBlock{
-	{Block: &LegacyBlock{Name: "stone", Val: 0}, Color: colorful.Color{89, 89, 89}},
-	{Block: &LegacyBlock{Name: "stone", Val: 1}, Color: colorful.Color{135, 102, 76}},
-	{Block: &LegacyBlock{Name: "stone", Val: 3}, Color: colorful.Color{237, 235, 229}},
-	{Block: &LegacyBlock{Name: "stone", Val: 5}, Color: colorful.Color{104, 104, 104}},
-	{Block: &LegacyBlock{Name: "grass", Val: 0}, Color: colorful.Color{144, 174, 94}},
-	{Block: &LegacyBlock{Name: "planks", Val: 0}, Color: colorful.Color{129, 112, 73}},
-	{Block: &LegacyBlock{Name: "planks", Val: 1}, Color: colorful.Color{114, 81, 51}},
-	{Block: &LegacyBlock{Name: "planks", Val: 2}, Color: colorful.Color{228, 217, 159}},
-	{Block: &LegacyBlock{Name: "planks", Val: 4}, Color: colorful.Color{71, 71, 71}},
-	{Block: &LegacyBlock{Name: "planks", Val: 5}, Color: colorful.Color{91, 72, 50}},
-	{Block: &LegacyBlock{Name: "leaves", Val: 0}, Color: colorful.Color{64, 85, 32}},
-	{Block: &LegacyBlock{Name: "leaves", Val: 1}, Color: colorful.Color{54, 75, 50}},
-	{Block: &LegacyBlock{Name: "leaves", Val: 2}, Color: colorful.Color{68, 83, 47}},
-	{Block: &LegacyBlock{Name: "leaves", Val: 14}, Color: colorful.Color{58, 71, 40}},
-	{Block: &LegacyBlock{Name: "leaves", Val: 15}, Color: colorful.Color{55, 73, 28}},
-	{Block: &LegacyBlock{Name: "sponge", Val: 0}, Color: colorful.Color{183, 183, 70}},
-	{Block: &LegacyBlock{Name: "lapis_block", Val: 0}, Color: colorful.Color{69, 101, 198}},
-	{Block: &LegacyBlock{Name: "noteblock", Val: 0}, Color: colorful.Color{111, 95, 63}},
-	{Block: &LegacyBlock{Name: "web", Val: 0}, Color: colorful.Color{159, 159, 159}},
-	{Block: &LegacyBlock{Name: "wool", Val: 0}, Color: colorful.Color{205, 205, 205}},
-	{Block: &LegacyBlock{Name: "wool", Val: 1}, Color: colorful.Color{163, 104, 54}},
-	{Block: &LegacyBlock{Name: "wool", Val: 2}, Color: colorful.Color{132, 65, 167}},
-	{Block: &LegacyBlock{Name: "wool", Val: 3}, Color: colorful.Color{91, 122, 169}},
-	{Block: &LegacyBlock{Name: "wool", Val: 5}, Color: colorful.Color{115, 162, 53}},
-	{Block: &LegacyBlock{Name: "wool", Val: 6}, Color: colorful.Color{182, 106, 131}},
-	{Block: &LegacyBlock{Name: "wool", Val: 7}, Color: colorful.Color{60, 60, 60}},
-	{Block: &LegacyBlock{Name: "wool", Val: 8}, Color: colorful.Color{123, 123, 123}},
-	{Block: &LegacyBlock{Name: "wool", Val: 9}, Color: colorful.Color{69, 100, 121}},
-	{Block: &LegacyBlock{Name: "wool", Val: 10}, Color: colorful.Color{94, 52, 137}},
-	{Block: &LegacyBlock{Name: "wool", Val: 11}, Color: colorful.Color{45, 59, 137}},
-	{Block: &LegacyBlock{Name: "wool", Val: 12}, Color: colorful.Color{78, 61, 43}},
-	{Block: &LegacyBlock{Name: "wool", Val: 13}, Color: colorful.Color{85, 100, 49}},
-	{Block: &LegacyBlock{Name: "wool", Val: 14}, Color: colorful.Color{113, 46, 44}},
-	{Block: &LegacyBlock{Name: "wool", Val: 15}, Color: colorful.Color{20, 20, 20}},
-	{Block: &LegacyBlock{Name: "gold_block", Val: 0}, Color: colorful.Color{198, 191, 84}},
-	{Block: &LegacyBlock{Name: "iron_block", Val: 0}, Color: colorful.Color{134, 134, 134}},
-	{Block: &LegacyBlock{Name: "double_stone_slab", Val: 1}, Color: colorful.Color{196, 187, 136}},
-	{Block: &LegacyBlock{Name: "double_stone_slab", Val: 6}, Color: colorful.Color{204, 202, 196}},
-	{Block: &LegacyBlock{Name: "double_stone_slab", Val: 7}, Color: colorful.Color{81, 11, 5}},
-	{Block: &LegacyBlock{Name: "redstone_block", Val: 0}, Color: colorful.Color{188, 39, 26}},
-	{Block: &LegacyBlock{Name: "mossy_cobblestone", Val: 0}, Color: colorful.Color{131, 134, 146}},
-	{Block: &LegacyBlock{Name: "diamond_block", Val: 0}, Color: colorful.Color{102, 173, 169}},
-	{Block: &LegacyBlock{Name: "farmland", Val: 0}, Color: colorful.Color{116, 88, 65}},
-	{Block: &LegacyBlock{Name: "ice", Val: 0}, Color: colorful.Color{149, 149, 231}},
-	{Block: &LegacyBlock{Name: "pumpkin", Val: 0}, Color: colorful.Color{189, 122, 62}},
-	{Block: &LegacyBlock{Name: "monster_egg", Val: 1}, Color: colorful.Color{153, 156, 169}},
-	{Block: &LegacyBlock{Name: "red_mushroom_block", Val: 0}, Color: colorful.Color{131, 53, 50}},
-	// {Block: &LegacyBlock{Name: "vine", Val: 1}, Color: colorful.Color{68, 89, 34}},
-	{Block: &LegacyBlock{Name: "brewing_stand", Val: 6}, Color: colorful.Color{155, 155, 155}},
-	{Block: &LegacyBlock{Name: "double_wooden_slab", Val: 1}, Color: colorful.Color{98, 70, 44}},
-	{Block: &LegacyBlock{Name: "emerald_block", Val: 0}, Color: colorful.Color{77, 171, 67}},
-	{Block: &LegacyBlock{Name: "raw_gold_block", Val: 0}, Color: colorful.Color{231, 221, 99}},
-	{Block: &LegacyBlock{Name: "stained_hardened_clay", Val: 0}, Color: colorful.Color{237, 237, 237}},
-	{Block: &LegacyBlock{Name: "stained_hardened_clay", Val: 2}, Color: colorful.Color{154, 76, 194}},
-	{Block: &LegacyBlock{Name: "stained_hardened_clay", Val: 4}, Color: colorful.Color{213, 213, 82}},
-	{Block: &LegacyBlock{Name: "stained_hardened_clay", Val: 6}, Color: colorful.Color{211, 123, 153}},
-	{Block: &LegacyBlock{Name: "stained_hardened_clay", Val: 8}, Color: colorful.Color{142, 142, 142}},
-	{Block: &LegacyBlock{Name: "stained_hardened_clay", Val: 10}, Color: colorful.Color{110, 62, 160}},
-	{Block: &LegacyBlock{Name: "slime", Val: 0}, Color: colorful.Color{109, 141, 60}},
-	{Block: &LegacyBlock{Name: "packed_ice", Val: 0}, Color: colorful.Color{128, 128, 199}},
-	{Block: &LegacyBlock{Name: "repeating_command_block", Val: 1}, Color: colorful.Color{77, 43, 112}},
-	{Block: &LegacyBlock{Name: "chain_command_block", Val: 1}, Color: colorful.Color{70, 82, 40}},
-	{Block: &LegacyBlock{Name: "nether_wart_block", Val: 0}, Color: colorful.Color{93, 38, 36}},
-	{Block: &LegacyBlock{Name: "bone_block", Val: 0}, Color: colorful.Color{160, 153, 112}},
-}
-
 func InitMapping(mappingInData []byte) {
+	//StdToNemcBlockNameMapping := map[string]string{}
+	//NemcToStdBlockNameMapping := map[string]string{}
+	//{
+	//	for i := 1; i < 5; i++ {
+	//		if i == 1 {
+	//			NemcToStdBlockNameMapping["stone_slab"] = "stone_block_slab"
+	//			NemcToStdBlockNameMapping["double_stone_slab"] = "double_stone_block_slab"
+	//		} else {
+	//			NemcToStdBlockNameMapping[fmt.Sprintf("stone_slab%v", i)] = fmt.Sprintf("stone_block_slab%v", i)
+	//			NemcToStdBlockNameMapping[fmt.Sprintf("double_stone_slab%v", i)] = fmt.Sprintf("double_stone_block_slab%v", i)
+	//		}
+	//	}
+	//	for _, color := range []string{"purple", "pink", "green", "red", "gray", "light_blue", "yellow", "blue", "brown", "black", "white", "orange", "cyan", "magenta", "lime", "silver"} {
+	//		// "glazedTerracotta.purple":  "purple_glazed_terracotta",
+	//		NemcToStdBlockNameMapping[fmt.Sprintf("glazedTerracotta.%v", color)] = fmt.Sprintf("%v_glazed_terracotta", color)
+	//	}
+	//	for k, v := range NemcToStdBlockNameMapping {
+	//		StdToNemcBlockNameMapping[v] = k
+	//		StdToNemcBlockNameMapping["minecraft:"+v] = "minecraft:" + k
+	//	}
+	//	for k, v := range StdToNemcBlockNameMapping {
+	//		NemcToStdBlockNameMapping[v] = k
+	//	}
+	//}
+
 	uncompressor := brotli.NewReader(bytes.NewBuffer(mappingInData))
 	mappingIn := MappingIn{}
 	if err := gob.NewDecoder(uncompressor).Decode(&mappingIn); err != nil {
 		panic(err)
 	}
+	blockNameRegrades := map[string]string{}
+	for i, blk := range mappingIn.RIDToMCBlock {
+		if strings.HasPrefix(blk.Name, "minecraft:double_stone_block_slab") {
+			upperGradeName := blk.Name
+			blk.Name = strings.ReplaceAll(blk.Name, "minecraft:double_stone_block_slab", "minecraft:double_stone_slab")
+			lowerGradeName := blk.Name
+			mappingIn.RIDToMCBlock[i] = blk
+			blockNameRegrades[upperGradeName] = lowerGradeName
+		}
+		if strings.HasPrefix(blk.Name, "minecraft:stone_block_slab") {
+			upperGradeName := blk.Name
+			blk.Name = strings.ReplaceAll(blk.Name, "minecraft:stone_block_slab", "minecraft:stone_slab")
+			lowerGradeName := blk.Name
+			mappingIn.RIDToMCBlock[i] = blk
+			blockNameRegrades[upperGradeName] = lowerGradeName
+		}
+		if strings.HasSuffix(blk.Name, "_glazed_terracotta") {
+			upperGradeName := blk.Name
+			lowerGradeName := strings.ReplaceAll(upperGradeName, "_glazed_terracotta", "")
+			lowerGradeName = "minecraft:glazedTerracotta." + lowerGradeName[len("minecraft:"):]
+			blockNameRegrades[lowerGradeName] = upperGradeName
+		}
+		if strings.HasSuffix(blk.Name, "sea_lantern") {
+			upperGradeName := blk.Name
+			lowerGradeName := strings.ReplaceAll(upperGradeName, "sea_lantern", "seaLantern")
+			blockNameRegrades[lowerGradeName] = upperGradeName
+		}
+		if strings.HasSuffix(blk.Name, "trip_wire") {
+			upperGradeName := blk.Name
+			lowerGradeName := strings.ReplaceAll(upperGradeName, "trip_wire", "tripWire")
+			blockNameRegrades[lowerGradeName] = upperGradeName
+		}
+		if strings.HasSuffix(blk.Name, "concrete_powder") {
+			upperGradeName := blk.Name
+			lowerGradeName := strings.ReplaceAll(upperGradeName, "concrete_powder", "concretePowder")
+			blockNameRegrades[lowerGradeName] = upperGradeName
+		}
+	}
+
+	blockNameRedirect := func(origBlockName string) (stdMCBlockName string) {
+		origBlockName = strings.TrimSpace(origBlockName)
+		if !strings.HasPrefix(origBlockName, "minecraft:") {
+			origBlockName = "minecraft:" + origBlockName
+		}
+		if regradeName, found := blockNameRegrades[origBlockName]; found {
+			return regradeName
+		} else {
+			return origBlockName
+		}
+	}
+
 	StatePropsToRuntimeIDMapping = make(map[string]map[string]uint32)
 	RuntimeIDToSateStrMapping = make(map[uint32]string)
 
@@ -691,9 +720,6 @@ func InitMapping(mappingInData []byte) {
 			return blk, true
 		}
 	}
-	numberRegex := regexp.MustCompile(`\d+`)
-	legacyBlockNameRegex := regexp.MustCompile(`name=.+,`)
-	legacyBlockValRegex := regexp.MustCompile(`val=.+]`)
 	JavaStrToRuntimeIDMapping = mappingIn.JavaToRid
 	JavaStrPropsToRuntimeIDMapping = make(map[string]map[string]uint32)
 	splitJavaNameAndProps := func(javaName string) (name, prop string) {
@@ -704,6 +730,7 @@ func InitMapping(mappingInData []byte) {
 		return ss[0], strings.TrimRight(ss[1], "]")
 	}
 	trimStateProps := func(state string) (prop string) {
+		state = strings.TrimSpace(state)
 		return strings.TrimRight(strings.TrimLeft(state, "["), "]")
 	}
 	{
@@ -717,9 +744,35 @@ func InitMapping(mappingInData []byte) {
 		}
 
 	}
+	BlockPropsToRuntimeID = func(blockName string, blockProps map[string]interface{}) (uint32, bool) {
+		blockName = blockNameRedirect(blockName)
+		if oprops, found := StatePropsToRuntimeIDMapping[blockName]; found {
+			bscore := -1
+			brtid := AirRID
+			for prop, rtid := range oprops {
+				oprop := strings.Split(prop, ",")
+				score := 0
+				for k, v := range blockProps {
+					p := fmt.Sprintf("\"%v\":%v", k, PropValueToStateString(v))
+					for _, m := range oprop {
+						m = strings.ReplaceAll(m, " ", "")
+						if m == p {
+							score++
+							break
+						}
+					}
+				}
+				if score > bscore {
+					bscore = score
+					brtid = rtid
+				}
+			}
+			return brtid, true
+		}
+		return AirRID, false
+	}
 	BlockStateStrToRuntimeID = func(blockName, blockState string) (uint32, bool) {
-		blockState = trimStateProps(blockState)
-		blockName = "minecraft:" + blockName
+		blockName = blockNameRedirect(blockName)
 		sprops := trimStateProps(blockState)
 		if oprops, found := StatePropsToRuntimeIDMapping[blockName]; found {
 			bscore := -1
@@ -748,18 +801,6 @@ func InitMapping(mappingInData []byte) {
 		return AirRID, false
 	}
 	JavaToRuntimeID = func(javaBlockStr string) (runtimeID uint32, found bool) {
-		if rtid, hasK := JavaStrToRuntimeIDMapping[javaBlockStr]; hasK {
-			return rtid, true
-		} else if strings.HasPrefix(javaBlockStr, "omega:as_runtime_id[") {
-			matchs := numberRegex.FindAllString(javaBlockStr, 1)
-			if len(matchs) > 0 {
-				if rtid, err := strconv.Atoi(string(matchs[0])); err == nil {
-					mappingIn.JavaToRid[javaBlockStr] = uint32(rtid)
-					return uint32(rtid), true
-				}
-			}
-			mappingIn.JavaToRid[javaBlockStr] = AirRID
-		}
 		jname, jprop := splitJavaNameAndProps(javaBlockStr)
 		if oprops, found := JavaStrPropsToRuntimeIDMapping[jname]; found {
 			bscore := -1
@@ -782,26 +823,6 @@ func InitMapping(mappingInData []byte) {
 				}
 			}
 			return brtid, true
-		}
-		if strings.HasPrefix(javaBlockStr, "omega:as_legacy_block[") {
-			name := "air"
-			matchs := legacyBlockNameRegex.FindAllString(javaBlockStr, 1)
-			if len(matchs) > 0 {
-				name = matchs[0]
-				name = name[5 : len(name)-1]
-			}
-			matchs = legacyBlockValRegex.FindAllString(javaBlockStr, 1)
-			if len(matchs) > 0 {
-				if val, err := strconv.Atoi(string(matchs[0][4 : len(matchs[0])-1])); err == nil {
-					rtid, found := LegacyBlockToRuntimeID(name, uint16(val))
-					if found {
-						mappingIn.JavaToRid[javaBlockStr] = uint32(rtid)
-						return uint32(rtid), true
-					}
-
-				}
-			}
-			mappingIn.JavaToRid[javaBlockStr] = AirRID
 		}
 		return AirRID, false
 	}
