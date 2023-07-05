@@ -1,9 +1,15 @@
 package builder
 
 import (
+	"compress/gzip"
+	"fmt"
+	"io/ioutil"
+	"os"
 	"errors"
 	I18n "phoenixbuilder/fastbuilder/i18n"
 	"phoenixbuilder/fastbuilder/types"
+
+	"github.com/Tnze/go-mc/nbt"
 )
 
 func Schematic(config *types.MainConfig, blc chan *types.Module) error {
