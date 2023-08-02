@@ -56,11 +56,19 @@ func (g *GameInterface) RenameItemByAnvil(
 		return []AnvilOperationResponse{}, fmt.Errorf("RenameItemByAnvil: %v", err)
 	}
 	// 尝试生成一个铁砧并附带承重方块
-	_, err = g.SendWSCommandWithResponse(fmt.Sprintf("tp %d %d %d", correctPos[0], correctPos[1], correctPos[2]))
+	err = g.SendSettingsCommand(
+		fmt.Sprintf("tp %d %d %d", correctPos[0], correctPos[1], correctPos[2]),
+		true,
+	)
 	if err != nil {
 		return []AnvilOperationResponse{}, fmt.Errorf("RenameItemByAnvil: %v", err)
 	}
-	// 传送机器人到铁砧处
+	err = g.AwaitChangesGeneral()
+	if err != nil {
+		return []AnvilOperationResponse{}, fmt.Errorf("RenameItemByAnvil: %v", err)
+	}
+	// 传送机器人到铁砧处。
+	// TODO: 优化上方这段代码
 	holder := g.Resources.Container.Occupy()
 	defer g.Resources.Container.Release(holder)
 	// 获取容器资源
@@ -134,7 +142,7 @@ func (g *GameInterface) RenameItemByAnvil(
 				Slot:        1,
 			},
 			ItemChangingDetails{
-				details: map[ResourcesControl.ContainerID]ResourcesControl.StackRequestContainerInfo{
+				Details: map[ResourcesControl.ContainerID]ResourcesControl.StackRequestContainerInfo{
 					0xc: {
 						WindowID: 0,
 						ChangeResult: map[uint8]protocol.ItemInstance{
@@ -154,7 +162,7 @@ func (g *GameInterface) RenameItemByAnvil(
 		if err != nil {
 			return res, fmt.Errorf("RenameItemByAnvil: %v", err)
 		}
-		if resp[0].Status != protocol.ItemStackResponseStatusOK {
+		if err == ErrMoveItemCheckFailure || resp[0].Status != protocol.ItemStackResponseStatusOK {
 			res = append(res, AnvilOperationResponse{
 				Successful: false,
 				Destination: &ItemLocation{

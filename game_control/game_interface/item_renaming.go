@@ -30,7 +30,6 @@ func (g *GameInterface) RenameItem(
 		return nil, fmt.Errorf("RenameItem: Anvil has not opened")
 	}
 	// 如果铁砧未被打开
-	var itemDatas protocol.ItemInstance
 	get, err := g.Resources.Inventory.GetItemStackInfo(
 		uint32(containerOpeningData.WindowID),
 		1,
@@ -38,20 +37,28 @@ func (g *GameInterface) RenameItem(
 	if err != nil {
 		return nil, fmt.Errorf("RenameItem: %v", err)
 	}
+	if get.Stack.NetworkID == 0 {
+		return nil, fmt.Errorf("RenameItem: Item provided is air")
+	}
+	// 得到已放入铁砧的物品的物品数据，
+	// 并进行数据检查
+	var itemDatas protocol.ItemInstance
 	ResourcesControl.DeepCopy(
 		&get,
 		&itemDatas,
 		func() {
 			gob.Register(map[string]interface{}{})
+			gob.Register([]interface{}{})
 		},
 	)
-	// 取得已放入铁砧的物品的物品数据并保存在 itemDatas 处
+	// 将得到的物品数据深拷贝到并 itemDatas 处
 	var backup protocol.ItemInstance
 	ResourcesControl.DeepCopy(
 		&get,
 		&backup,
 		func() {
 			gob.Register(map[string]interface{}{})
+			gob.Register([]interface{}{})
 		},
 	)
 	// 备份物品数据到 backup 处
@@ -99,7 +106,7 @@ func (g *GameInterface) RenameItem(
 				},
 				[]ItemChangingDetails{
 					{
-						details: map[ResourcesControl.ContainerID]ResourcesControl.StackRequestContainerInfo{
+						Details: map[ResourcesControl.ContainerID]ResourcesControl.StackRequestContainerInfo{
 							0x0: {
 								WindowID: uint32(containerOpeningData.WindowID),
 								ChangeResult: map[uint8]protocol.ItemInstance{

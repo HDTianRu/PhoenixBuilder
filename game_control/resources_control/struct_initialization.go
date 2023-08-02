@@ -16,7 +16,8 @@ import (
 func (r *Resources) Init() func(pk *packet.Packet) {
 	*r = Resources{
 		Command: commandRequestWithResponse{
-			requestWithResponse: sync.Map{},
+			request:  sync.Map{},
+			response: sync.Map{},
 		},
 		Inventory: inventoryContents{
 			lockDown: sync.RWMutex{},
@@ -42,6 +43,9 @@ func (r *Resources) Init() func(pk *packet.Packet) {
 				holder:   "",
 			},
 			resp: make(chan packet.StructureTemplateDataResponse, 1),
+		},
+		Listener: packetListener{
+			listenerWithData: sync.Map{},
 		},
 		Others: others{
 			currentTickRequestWithResp: sync.Map{},

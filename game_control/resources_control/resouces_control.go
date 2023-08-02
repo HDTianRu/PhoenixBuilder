@@ -1,9 +1,11 @@
 package ResourcesControl
 
 import (
+	"context"
 	"phoenixbuilder/minecraft/protocol"
 	"phoenixbuilder/minecraft/protocol/packet"
 	"sync"
+	"time"
 )
 
 // ------------------------- Resources -------------------------
@@ -20,18 +22,44 @@ type Resources struct {
 	Container container
 	// 管理结构资源并保存结构请求的回应
 	Structure mcstructure
+	// 数据包监听器
+	Listener packetListener
 	// 管理和保存其他小型的资源，
-	// 例如例如游戏刻相关
+	// 例如游戏刻相关
 	Others others
 }
 
 // ------------------------- commandRequestWithResponce -------------------------
 
+// 指定单个命令请求中可以自定义的设置项
+type CommandRequestOptions struct {
+	// 描述当前命令请求的最长截止时间，
+	// 当抵达该时间后，将返回超时错误。
+	// 如果此字段为 0 ，则将永远等待，
+	// 直到客户端收到对应的响应体
+	TimeOut time.Duration
+}
+
 // 存放命令请求及结果
 type commandRequestWithResponse struct {
-	// 存放命令请求及返回值队列。
+	// 存放命令请求。
+	// 数据类型为 map[uuid.UUID]CommandRequestOptions
+	request sync.Map
+	// 存放命令请求的响应体。
 	// 数据类型为 map[uuid.UUID](chan packet.CommandOutput)
-	requestWithResponse sync.Map
+	response sync.Map
+}
+
+// 描述命令请求的响应体
+type CommandRespond struct {
+	// 来自租赁服的响应体
+	Respond packet.CommandOutput
+	// 获取响应体时发生错误信息，
+	// 可能不存在
+	Error error
+	// 如果获取响应体时发生了错误，
+	// 那么此字段非 0 ，否则为 0
+	ErrorType uint8
 }
 
 // ------------------------- inventoryContents -------------------------
@@ -92,8 +120,8 @@ type StackRequestContainerInfo struct {
 	// 其容器对应库存的窗口 ID
 	WindowID uint32
 	// 描述此容器中每个槽位的变动结果，键代表槽位编号，而值代表物品的新值。
-	// 特别地，您无需设置物品数量和 NBT 中的物品名称以及物品的 StackNetworkID 信息，因为
-	// 这些数据会在租赁服发回 ItemStackResponce 后被重新设置
+	// 特别地，您无需设置物品数量以及物品的 StackNetworkID 信息，
+	// 因为这些数据会在租赁服发回 ItemStackResponce 后被重新设置
 	ChangeResult map[uint8]protocol.ItemInstance
 }
 
@@ -147,6 +175,34 @@ type mcstructure struct {
 	resp chan packet.StructureTemplateDataResponse
 }
 
+// ------------------------- packetListener -------------------------
+
+// 储存单次监听请求下所需要保存的数据
+type singleListen struct {
+	// 指代本次请求中欲监听的数据包 ID
+	packetsID []uint32
+	// 用于存放本次请求中已经监听的数据包
+	packetReceived chan (packet.Packet)
+	// 标记该监听器下有多少个协程正在尝试分发数据包。
+	// 我们最多允许同时存在 MaximumCoroutinesRunningCount 个这样的协程，
+	// 对于超出的部分，对应的数据包将被丢弃
+	runningCounts int32
+	// 如果监听者终止并关闭了当次监听，
+	// 则相应的上层实现会取消该上下文，
+	// 以表明相关联的所有监听协程均应当关闭
+	ctx context.Context
+	// 当调用此函数时，
+	// 监听器将终止并关闭
+	stop context.CancelFunc
+}
+
+// 数据包监听器
+type packetListener struct {
+	// 数据类型为 map[uuid.UUID]singleListen 。
+	// 键代表监听器，而值代表此监听器下已保存的数据
+	listenerWithData sync.Map
+}
+
 // ------------------------- others -------------------------
 
 // 记录其他小型的资源，例如游戏刻相关
@@ -156,5 +212,3 @@ type others struct {
 	// 数据类型为 map[uuid.UUID]chan int64
 	currentTickRequestWithResp sync.Map
 }
-
-// ------------------------- END -------------------------

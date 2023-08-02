@@ -2,20 +2,19 @@ package fastbuilder
 
 import (
 	"bufio"
-	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
 	"phoenixbuilder/fastbuilder/args"
 	"phoenixbuilder/fastbuilder/core"
-	fbauth "phoenixbuilder/fastbuilder/cv4/auth"
 	"phoenixbuilder/fastbuilder/environment"
 	"phoenixbuilder/fastbuilder/external"
 	"phoenixbuilder/fastbuilder/function"
 	I18n "phoenixbuilder/fastbuilder/i18n"
 	"phoenixbuilder/fastbuilder/move"
+	fbauth "phoenixbuilder/fastbuilder/pv4"
+	"phoenixbuilder/fastbuilder/py_rpc"
 	"phoenixbuilder/fastbuilder/readline"
 	script_bridge "phoenixbuilder/fastbuilder/script_engine/bridge"
 	"phoenixbuilder/fastbuilder/signalhandler"
@@ -62,11 +61,43 @@ func EnterReadlineThread(env *environment.PBEnvironment, breaker chan struct{}) 
 			continue
 		}
 		if cmd[0] == '.' {
-			resp, _ := gameInterface.SendCommandWithResponse(cmd[1:])
-			fmt.Printf("%+v\n", resp)
+			resp := gameInterface.SendCommandWithResponse(
+				cmd[1:],
+				ResourcesControl.CommandRequestOptions{
+					TimeOut: ResourcesControl.CommandRequestDefaultDeadLine,
+				},
+			)
+			if resp.Error != nil {
+				env.GameInterface.Output(
+					pterm.Error.Sprintf(
+						"Failed to get respond of \"%v\", and the following is the error log.",
+						cmd[1:],
+					),
+				)
+				env.GameInterface.Output(pterm.Error.Sprintf("%v", resp.Error.Error()))
+			} else {
+				fmt.Printf("%+v\n", resp.Respond)
+			}
 		} else if cmd[0] == '!' {
-			resp, _ := gameInterface.SendWSCommandWithResponse(cmd[1:])
-			fmt.Printf("%+v\n", resp)
+			resp := gameInterface.SendWSCommandWithResponse(
+				cmd[1:],
+				ResourcesControl.CommandRequestOptions{
+					TimeOut: ResourcesControl.CommandRequestDefaultDeadLine,
+				},
+			)
+			if resp.Error != nil {
+				env.GameInterface.Output(
+					pterm.Error.Sprintf(
+						"Failed to get respond of \"%v\", and the following is the error log.",
+						cmd[1:],
+					),
+				)
+				env.GameInterface.Output(pterm.Error.Sprintf("%v", resp.Error.Error()))
+			} else {
+				fmt.Printf("%+v\n", resp.Respond)
+			}
+		} else if cmd[0] == '*' {
+			gameInterface.SendSettingsCommand(cmd[1:], false)
 		}
 		functionHolder.Process(cmd)
 	}
@@ -101,76 +132,51 @@ func EnterWorkerThread(env *environment.PBEnvironment, breaker chan struct{}) {
 		{
 			p, ok := pk.(*packet.PyRpc)
 			if ok {
-				if strings.Contains(string(p.Content), "GetStartType") {
-					// 2021-12-22 10:51~11:55
-					// 2023-05-30
-					// Thank netease for wasting my time again ;)
-					//fmt.Printf("%X\n", p.Content)
-					encData := p.Content[len(p.Content)-163 : len(p.Content)-1]
-					//fmt.Printf("%s\n", p.Content)
-					//fmt.Printf("%s\n", encData)
-					//fmt.Printf("%s\n", env.Uid)
-					client := env.FBAuthClient.(*fbauth.Client)
-					response := client.TransferData(string(encData), fmt.Sprintf("%s", env.Uid))
-					//fmt.Printf("%s\n", response)
+				go_p_val := p.Value.MakeGo()
+				//json_val, _:=json.MarshalIndent(go_p_val, "", "\t")
+				//fmt.Printf("Received PyRpc: %s\n", json_val)
+				pyrpc_val := go_p_val.([]interface{})
+				command := pyrpc_val[0].(string)
+				data := pyrpc_val[1].([]interface{})
+				if command == "S2CHeartBeat" {
 					conn.WritePacket(&packet.PyRpc{
-						Content: bytes.Join([][]byte{[]byte{0x82, 0xc4, 0x8, 0x5f, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x5f, 0x5f, 0xc4, 0x5, 0x74, 0x75, 0x70, 0x6c, 0x65, 0xc4, 0x5, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x93, 0xc4, 0xc, 0x53, 0x65, 0x74, 0x53, 0x74, 0x61, 0x72, 0x74, 0x54, 0x79, 0x70, 0x65, 0x82, 0xc4, 0x8, 0x5f, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x5f, 0x5f, 0xc4, 0x5, 0x74, 0x75, 0x70, 0x6c, 0x65, 0xc4, 0x5, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x91, 0xc4},
-							[]byte{byte(len(response))},
-							[]byte(response),
-							[]byte{0xc0},
-						}, []byte{}),
+						Value: py_rpc.FromGo([]interface{}{
+							"C2SHeartBeat",
+							data,
+							nil,
+						}),
 					})
-					//fmt.Printf("%s\n", response)
-				} else if strings.Contains(string(p.Content), "GetMCPCheckNum") {
-					// This shit sucks, so as netease.
+				} else if command == "GetStartType" {
+					client := env.FBAuthClient.(*fbauth.Client)
+					response := client.TransferData(data[0].(string))
+					conn.WritePacket(&packet.PyRpc{
+						Value: py_rpc.FromGo([]interface{}{
+							"SetStartType",
+							[]interface{}{response},
+							nil,
+						}),
+					})
+				} else if command == "GetMCPCheckNum" {
 					if getchecknum_everPassed {
 						continue
 					}
-					//fmt.Printf("%X", p.Content)
-					firstArgLenB := p.Content[19:21]
-					firstArgLen := binary.BigEndian.Uint16(firstArgLenB)
-					firstArg := string(p.Content[21 : 21+firstArgLen])
-					secondArgLen := uint16(p.Content[23+firstArgLen])
-					secondArg := string(p.Content[24+firstArgLen : 24+firstArgLen+secondArgLen])
-					//fmt.Printf("%s\n%s\n",firstArg, secondArg)
-					//fmt.Printf("%v\n", env.Connection.(*minecraft.Conn).GameData().EntityUniqueID)
-					//fmt.Printf("%X\n", p.Content)
-					//valM,_:=getUserInputMD5()
-					//valS,_:=getUserInputMD5()
-					//valT,_:=getUserInputMD5()
-
+					firstArg := data[0].(string)
+					secondArg := (data[1].([]interface{}))[0].(string)
 					client := env.FBAuthClient.(*fbauth.Client)
-					valM, valS, valT := client.TransferCheckNum(firstArg, secondArg, env.Connection.(*minecraft.Conn).GameData().EntityUniqueID)
-
-					/*conn.WritePacket(&packet.PyRpc{
-						Content: bytes.Join([][]byte{[]byte{0x82, 0xc4, 0x8, 0x5f, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x5f, 0x5f, 0xc4, 0x5, 0x74, 0x75, 0x70, 0x6c, 0x65, 0xc4, 0x5, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x93, 0xc4, 0xe, 0x53, 0x65, 0x74, 0x4d, 0x43, 0x50, 0x43, 0x68, 0x65, 0x63, 0x6b, 0x4e, 0x75, 0x6d, 0x82, 0xc4, 0x8, 0x5f, 0x5f, 0x74, 0x79, 0x70, 0x65, 0x5f, 0x5f, 0xc4, 0x5, 0x74, 0x75, 0x70, 0x6c, 0x65, 0xc4, 0x5, 0x76, 0x61, 0x6c, 0x75, 0x65, 0x91, 0xc4, 0x20},
-							[]byte(valM),
-							[]byte{0xc0},
-						}, []byte{}),
-					})*/
+					arg, _ := json.Marshal([]interface{}{firstArg, secondArg, env.Connection.(*minecraft.Conn).GameData().EntityUniqueID})
+					ret := client.TransferCheckNum(string(arg))
+					ret_p := []interface{}{}
+					json.Unmarshal([]byte(ret), &ret_p)
 					conn.WritePacket(&packet.PyRpc{
-						Content: bytes.Join([][]byte{[]byte{0x93, 0xc4, 0x0e}, []byte("SetMCPCheckNum"), []byte{0x91, 0x98, 0xc4, 0x20},
-							[]byte(valM),
-							[]byte{0xc4, 0x20},
-							[]byte(valS),
-							[]byte{0xc2},
-							[]byte{0x90},
-							[]byte{0xc4, 0x00},
-							[]byte{0xc4, 0x00},
-							[]byte{3},
-							[]byte{0xc4, 0x20},
-							[]byte(valT),
-							[]byte{0xC0},
-						}, []byte{}),
+						Value: py_rpc.FromGo([]interface{}{
+							"SetMCPCheckNum",
+							[]interface{}{
+								ret_p,
+							},
+							nil,
+						}),
 					})
 					getchecknum_everPassed = true
-					/*go func() {
-						time.Sleep(3*time.Second)
-						resp, _ := env.GlobalAPI.(*GlobalAPI.GlobalAPI).SendCommandWithResponce("list")
-						fmt.Printf("%+v\n", resp)
-					} ()*/
-				} else {
-					//fmt.Printf("PyRpc! %s\n", p.Content)
 				}
 			}
 		}
@@ -293,7 +299,9 @@ func EnterWorkerThread(env *environment.PBEnvironment, breaker chan struct{}) {
 
 func EstablishConnectionAndInitEnv(env *environment.PBEnvironment) {
 	if env.FBAuthClient == nil {
-		env.FBAuthClient = fbauth.CreateClient(env)
+		env.ClientOptions.AuthServer = args.AuthServer
+		env.ClientOptions.RespondUserOverride = args.CustomGameName
+		env.FBAuthClient = fbauth.CreateClient(env.ClientOptions)
 	}
 	pterm.Println(pterm.Yellow(fmt.Sprintf("%s: %s", I18n.T(I18n.ServerCodeTrans), env.LoginInfo.ServerCode)))
 
@@ -301,12 +309,18 @@ func EstablishConnectionAndInitEnv(env *environment.PBEnvironment) {
 	if env.IsDebug {
 		options = append(options, core.OptionDebug)
 	}
+	if args.ExternalListenAddress != "" {
+		external.ListenExt(env, args.ExternalListenAddress)
+	}
+
 	ctx, _ := context.WithTimeout(context.Background(), time.Second*30)
 	authenticator := fbauth.NewAccessWrapper(
 		env.FBAuthClient.(*fbauth.Client),
 		env.LoginInfo.ServerCode,
 		env.LoginInfo.ServerPasscode,
 		env.LoginInfo.Token,
+		env.LoginInfo.Username,
+		env.LoginInfo.Password,
 	)
 	conn, err := core.InitializeMinecraftConnection(ctx, authenticator, options...)
 
@@ -319,17 +333,16 @@ func EstablishConnectionAndInitEnv(env *environment.PBEnvironment) {
 		panic(err)
 	}
 	if len(env.RespondUser) == 0 {
-		if args.CustomGameName == "" {
-			go func() {
-				user := env.FBAuthClient.(*fbauth.Client).ShouldRespondUser()
-				env.RespondUser = user
-			}()
-		} else {
+		if args.CustomGameName != "" {
 			env.RespondUser = args.CustomGameName
+		} else {
+			env.RespondUser = env.FBAuthClient.(*fbauth.Client).RespondUser
 		}
 	}
+
 	env.Connection = conn
 	pterm.Println(pterm.Yellow(I18n.T(I18n.ConnectionEstablished)))
+
 	env.UQHolder = uqHolder.NewUQHolder(conn.GameData().EntityRuntimeID)
 	env.UQHolder.(*uqHolder.UQHolder).UpdateFromConn(conn)
 	env.UQHolder.(*uqHolder.UQHolder).CurrentTick = 0
@@ -357,6 +370,7 @@ func EstablishConnectionAndInitEnv(env *environment.PBEnvironment) {
 	functionHolder := env.FunctionHolder.(*function.FunctionHolder)
 	function.InitPresetFunctions(functionHolder)
 	fbtask.InitTaskStatusDisplay(env)
+
 	move.ConnectTime = time.Time{}
 	move.Position = conn.GameData().PlayerPosition
 	move.Pitch = conn.GameData().Pitch
@@ -369,11 +383,16 @@ func EstablishConnectionAndInitEnv(env *environment.PBEnvironment) {
 	hostBridgeGamma := env.ScriptBridge.(*script_bridge.HostBridgeGamma)
 	hostBridgeGamma.HostSetSendCmdFunc(func(mcCmd string, waitResponse bool) *packet.CommandOutput {
 		if !waitResponse {
-			env.GameInterface.SendCommand(mcCmd)
+			env.GameInterface.SendWSCommand(mcCmd)
 			return nil
 		}
-		resp, _ := env.GameInterface.SendCommandWithResponse(mcCmd)
-		return &resp
+		resp := env.GameInterface.SendWSCommandWithResponse(
+			mcCmd,
+			ResourcesControl.CommandRequestOptions{
+				TimeOut: ResourcesControl.CommandRequestNoDeadLine,
+			},
+		)
+		return &resp.Respond
 	})
 	hostBridgeGamma.HostConnectEstablished()
 	defer hostBridgeGamma.HostConnectTerminate()
@@ -381,11 +400,7 @@ func EstablishConnectionAndInitEnv(env *environment.PBEnvironment) {
 	taskholder := env.TaskHolder.(*fbtask.TaskHolder)
 	types.ForwardedBrokSender = taskholder.BrokSender
 
-	if args.ExternalListenAddress != "" {
-		external.ListenExt(env, args.ExternalListenAddress)
-	}
 	env.UQHolder.(*uqHolder.UQHolder).UpdateFromConn(conn)
-	return
 }
 
 func getUserInputMD5() (string, error) {

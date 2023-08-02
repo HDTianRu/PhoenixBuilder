@@ -10,6 +10,7 @@ import (
 	"phoenixbuilder/fastbuilder/configuration"
 	"phoenixbuilder/fastbuilder/environment"
 	"phoenixbuilder/fastbuilder/parsing"
+	fbauth "phoenixbuilder/fastbuilder/pv4"
 	"phoenixbuilder/fastbuilder/task"
 	"phoenixbuilder/fastbuilder/task/fetcher"
 	"phoenixbuilder/fastbuilder/types"
@@ -365,7 +366,7 @@ func CreateExportTask(commandLine string, env *environment.PBEnvironment) *task.
 			cfg.Path += ".bdx"
 		}
 		env.GameInterface.Output("EXPORT >> Writing output file")
-		err, signerr := out.WriteToFile(cfg.Path, env.LocalCert, env.LocalKey)
+		err, signerr := out.WriteToFile(cfg.Path, env.FBAuthClient.(*fbauth.Client).LocalCert, env.FBAuthClient.(*fbauth.Client).LocalKey)
 		if err != nil {
 			env.GameInterface.Output(fmt.Sprintf("EXPORT >> ERROR: Failed to export: %v", err))
 			return
