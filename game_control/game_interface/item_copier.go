@@ -3,7 +3,6 @@ package GameInterface
 import (
 	"fmt"
 	"phoenixbuilder/fastbuilder/types"
-	ResourcesControl "phoenixbuilder/game_control/resources_control"
 	"phoenixbuilder/minecraft/protocol"
 	"phoenixbuilder/minecraft/protocol/packet"
 	"time"
@@ -81,33 +80,19 @@ func (g *GameInterface) CopyItem(
 		resp, err := g.MoveItem(
 			source,
 			destination,
-			ItemChangingDetails{
-				Details: map[ResourcesControl.ContainerID]ResourcesControl.StackRequestContainerInfo{
-					ResourcesControl.ContainerID(source.ContainerID): {
-						WindowID: uint32(source.WindowID),
-						ChangeResult: map[uint8]protocol.ItemInstance{
-							source.Slot: AirItem,
-						},
-					},
-					ResourcesControl.ContainerID(destination.ContainerID): {
-						WindowID: uint32(destination.WindowID),
-						ChangeResult: map[uint8]protocol.ItemInstance{
-							destination.Slot: {
-								Stack: protocol.ItemStack{
-									ItemType:       sourceData.Stack.ItemType,
-									BlockRuntimeID: sourceData.Stack.BlockRuntimeID,
-									Count:          result,
-									NBTData:        sourceData.Stack.NBTData,
-									CanBePlacedOn:  sourceData.Stack.CanBePlacedOn,
-									CanBreak:       sourceData.Stack.CanBreak,
-									HasNetworkID:   sourceData.Stack.HasNetworkID,
-								},
-							},
-						},
-					},
+			uint8(moveCounts),
+			AirItem,
+			protocol.ItemInstance{
+				Stack: protocol.ItemStack{
+					ItemType:       sourceData.Stack.ItemType,
+					BlockRuntimeID: sourceData.Stack.BlockRuntimeID,
+					Count:          result,
+					NBTData:        sourceData.Stack.NBTData,
+					CanBePlacedOn:  sourceData.Stack.CanBePlacedOn,
+					CanBreak:       sourceData.Stack.CanBreak,
+					HasNetworkID:   sourceData.Stack.HasNetworkID,
 				},
 			},
-			uint8(moveCounts),
 		)
 		if err != nil {
 			return false, fmt.Errorf("subFunc: %v", err)
@@ -133,12 +118,12 @@ func (g *GameInterface) CopyItem(
 		// 打开木桶并等待数据同步
 		itemOnHotBarSlot := ItemLocation{
 			WindowID:    0,
-			ContainerID: 0xc,
+			ContainerID: ContainerIDInventory,
 			Slot:        hotBarSlot,
 		}
 		itemOnConatiner := ItemLocation{
-			WindowID:    int16(g.Resources.Container.GetContainerOpeningData().WindowID),
-			ContainerID: 58,
+			WindowID:    g.Resources.Container.GetContainerOpeningData().WindowID,
+			ContainerID: ContainerIDBarrel,
 			Slot:        13,
 		}
 		// 初始化
