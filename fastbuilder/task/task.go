@@ -368,20 +368,17 @@ func InitTaskStatusDisplay(env *environment.PBEnvironment) {
 			env.GameInterface.Output(str)
 		}
 	}()
-	ticker := time.NewTicker(500 * time.Millisecond)
 	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer func() {
+			ticker.Stop()
+		}()
 		for {
-			<-ticker.C
-			env.ActivateTaskStatus <- true
-		}
-	}()
-	go func() {
-		for {
-			<-env.ActivateTaskStatus
 			if configuration.GlobalFullConfig(env).Global().TaskDisplayMode == types.TaskDisplayNo {
 				continue
 			}
 			var displayStrs []string
+			<-ticker.C
 			holder.TaskMap.Range(func(_tid interface{}, _v interface{}) bool {
 				tid, _ := _tid.(int64)
 				v, _ := _v.(*Task)

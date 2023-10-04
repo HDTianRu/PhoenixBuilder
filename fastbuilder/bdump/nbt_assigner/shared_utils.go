@@ -35,8 +35,7 @@ func IsNBTItemSupported(itemName string) string {
 // 如果不能打开，则返回假，否则返回真。
 // 如果提供的 blockName 不是容器，则始终返回假
 func ContainerCouldOpen(blockName string) bool {
-	value := SupportContainerPool[blockName]
-	return value.CouldOpen
+	return SupportContainerPool[blockName].CouldOpen
 }
 
 // 将 itemComponents 编码为游戏支持的 JSON 格式。
@@ -108,7 +107,7 @@ func get_block_data_from_states(
 
 // 将 types.Module 解析为 GeneralBlock
 func ParseBlockModule(singleBlock *types.Module) (GeneralBlock, error) {
-	blockStates, err := mcstructure.UnMarshalBlockStates(singleBlock.Block.BlockStates)
+	blockStates, err := mcstructure.UnmarshalBlockStates(singleBlock.Block.BlockStates)
 	if err != nil {
 		return GeneralBlock{}, fmt.Errorf("ParseBlockModule: Failed to parse the block states from string; singleBlock.Block.BlockStates = %#v, err = %v", singleBlock.Block.BlockStates, err)
 	}

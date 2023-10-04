@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bufio"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,8 +10,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	I18n "phoenixbuilder/fastbuilder/i18n"
 	"regexp"
 	"strconv"
+	"strings"
+	"syscall"
+
+	"golang.org/x/term"
 )
 
 func SliceAtoi(sa []string) ([]int, error) {
@@ -44,7 +51,7 @@ func GetMD5(i string) string {
 }
 
 func CheckUpdate(currentVersion string) (bool, string) {
-	version_regexp := regexp.MustCompile("^v?((\\d+).(\\d+).(\\d+))$")
+	version_regexp := regexp.MustCompile(`^v?((\d+).(\d+).(\d+))$`)
 	current_version_m := version_regexp.FindAllStringSubmatch(currentVersion, -1)
 	if len(current_version_m) == 0 || len(current_version_m[0]) != 5 {
 		return false, ""
@@ -91,4 +98,44 @@ func CheckUpdate(currentVersion string) (bool, string) {
 		}
 	}
 	return false, ""
+}
+
+func GetRentalServerCode() (string, string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf(I18n.T(I18n.Enter_Rental_Server_Code))
+	code, err := reader.ReadString('\n')
+	if err != nil {
+		return "", "", err
+	}
+	fmt.Printf(I18n.T(I18n.Enter_Rental_Server_Password))
+	bytePassword, err := term.ReadPassword(int(syscall.Stdin))
+	fmt.Printf("\n")
+	return strings.TrimRight(code, "\r\n"), string(bytePassword), err
+}
+
+func GetUsernameInput() (string, error) {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf(I18n.T(I18n.Enter_FBUC_Username))
+	fbusername, err := reader.ReadString('\n')
+	return fbusername, err
+}
+
+func LoadTokenPath() string {
+	homedir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Println(I18n.T(I18n.Warning_UserHomeDir))
+		homedir = "."
+	}
+	fbconfigdir := filepath.Join(homedir, ".config/fastbuilder")
+	os.MkdirAll(fbconfigdir, 0700)
+	token := filepath.Join(fbconfigdir, "fbtoken")
+	return token
+}
+
+func ReadToken(path string) (string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }
